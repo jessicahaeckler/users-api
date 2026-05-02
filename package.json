@@ -1,0 +1,33 @@
+{
+  "name": "users-api",
+  "version": "0.1.0",
+  "bin": {
+    "users-api": "bin/users-api.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "jest",
+    "cdk": "cdk"
+  },
+  "devDependencies": {
+    "@types/jest": "^30",
+    "@types/node": "^24.10.1",
+    "aws-cdk": "2.1119.0",
+    "jest": "^30",
+    "ts-jest": "^29",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.9.3"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1037.0",
+    "@aws-sdk/lib-dynamodb": "^3.1037.0",
+    "@faker-js/faker": "^10.4.0",
+    "@types/aws-lambda": "^8.10.161",
+    "@types/uuid": "^10.0.0",
+    "aws-cdk-lib": "^2.248.0",
+    "constructs": "^10.5.0",
+    "esbuild": "^0.28.0",
+    "uuid": "^14.0.0"
+  }
+}
