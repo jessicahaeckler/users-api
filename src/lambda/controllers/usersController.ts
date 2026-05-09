@@ -4,7 +4,7 @@ import { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand, DeleteCo
 import { v4 as uuidv4 } from 'uuid';
 import { log } from '../utils/logger';
 import { logAuditEvent } from '../services/auditService';
-import { badRequest, success } from '../utils/response';
+import { badRequest, success, notFound, conflict } from '../utils/response';
 // import { faker } from '@faker-js/faker';
 
 const client = new DynamoDBClient({});
@@ -12,11 +12,42 @@ const dynamoDB = DynamoDBDocumentClient.from(client);
 const TABLE_NAME = process.env.TABLE_NAME!;
 
 export async function getAllUsers(event: APIGatewayProxyEventV2, requestId: string): Promise<APIGatewayProxyResultV2> {
+    const nextToken = event.queryStringParameters?.nextToken;
+    let exclusiveStartKey;
+
     try {
+        exclusiveStartKey = nextToken
+            ? JSON.parse(decodeURIComponent(nextToken))
+            : undefined;
+    } catch {
+        return badRequest('Invalid nextToken');
+    }
+
+    const limitParam = Number(event.queryStringParameters?.limit);
+
+    const limit =
+        Number.isInteger(limitParam) &&
+        limitParam > 0 &&
+        limitParam <= 100
+            ? limitParam
+            : 10;
+
+    try {
+        // NOTE: Scan used for demo purposes
         const result = await dynamoDB.send(new ScanCommand({
-            TableName: TABLE_NAME
+            TableName: TABLE_NAME,
+            Limit: limit,
+            ExclusiveStartKey: exclusiveStartKey
         }))
-        return success(200, result.Items || [], requestId);
+        
+        return success(200, {
+            items: result.Items || [],
+            nextToken: result.LastEvaluatedKey
+                ? encodeURIComponent(
+                    JSON.stringify(result.LastEvaluatedKey)
+                  )
+                : null
+        }, requestId);
     } catch (error) {
         log('ERROR', 'Error fetching users', { requestId, error: error instanceof Error ? error.message : error });
         throw error;
@@ -33,10 +64,7 @@ export async function getUser(event: APIGatewayProxyEventV2, requestId: string):
             Key: {userId}
         }))
         if (!result.Item) {
-            return {
-                statusCode: 404,
-                body: JSON.stringify({message: `User not found with id: ${userId}`})
-            }
+            return notFound(`User not found with id: ${userId}`);
         }
         return success(200, result.Item, requestId);
     } catch (error) {
@@ -49,9 +77,19 @@ export async function getUser(event: APIGatewayProxyEventV2, requestId: string):
 export async function createUser(event: APIGatewayProxyEventV2, requestId: string): Promise<APIGatewayProxyResultV2> {
     if (!event.body) return badRequest('Request body required');
 
+    let parsed;
+    try {
+        parsed = JSON.parse(event.body);
+    } catch {
+        return badRequest('Invalid JSON');
+    }
+
     // TODO: Create a validation helper to check for required fields and correct data types
-    const { name, email } = JSON.parse(event.body);
+    const { name, email } = parsed;
     if (!name || !email) return badRequest('name and email required');
+
+    const emailRegex = /\S+@\S+\.\S+/;
+    if (!emailRegex.test(email)) return badRequest('Invalid email format');
 
     const userId = uuidv4();
     const user = {
@@ -80,10 +118,7 @@ export async function createUser(event: APIGatewayProxyEventV2, requestId: strin
     } catch (error: any) {
         // TODO: create a helper to parse AWS errors and return appropriate status codes/messages
         if (error.name === 'ConditionalCheckFailedException') {
-            return {
-                statusCode: 409,
-                body: JSON.stringify({ message: 'User already exists' })
-            };
+            return conflict('User already exists');
         }
         log('ERROR', 'Error creating user', { requestId, error: error instanceof Error ? error.message : error });
         throw error;
@@ -106,6 +141,7 @@ export async function createUser(event: APIGatewayProxyEventV2, requestId: strin
 
 export async function updateUser(event: APIGatewayProxyEventV2, requestId: string): Promise<APIGatewayProxyResultV2> {
     if (!event.body) return badRequest('Request body required');
+    
     const userId = event.pathParameters?.id;
     if (!userId) return badRequest('User ID is required');
 
@@ -118,6 +154,9 @@ export async function updateUser(event: APIGatewayProxyEventV2, requestId: strin
 
     const { name, email } = parsed;
     if (!name || !email) return badRequest('name and email required');
+
+    const emailRegex = /\S+@\S+\.\S+/;
+    if (!emailRegex.test(email)) return badRequest('Invalid email format');
 
     log('INFO', 'Updating user', { requestId, userId, name, email });
 
@@ -141,10 +180,7 @@ export async function updateUser(event: APIGatewayProxyEventV2, requestId: strin
         log('INFO', 'User updated successfully', { requestId, userId });
     } catch (error: any) {
         if (error.name === 'ConditionalCheckFailedException') {
-            return {
-                statusCode: 404,
-                body: JSON.stringify({ message: 'User not found' })
-            };
+            return notFound('User not found');
         }
 
         log('ERROR', 'Error updating user', {
@@ -187,10 +223,7 @@ export async function deleteUser(event: APIGatewayProxyEventV2, requestId: strin
         }))
     } catch (error: any) {
         if (error.name === 'ConditionalCheckFailedException') {
-            return {
-                statusCode: 404,
-                body: JSON.stringify({ message: 'User not found' })
-            };
+            return notFound('User not found');
         }
         log('ERROR', 'Error deleting user', { requestId, error: error instanceof Error ? error.message : error });
         throw error;
