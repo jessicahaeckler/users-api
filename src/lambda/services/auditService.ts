@@ -14,7 +14,7 @@ export async function logAuditEvent({
 }: {
     userId: string;
     action: string;
-    changes?: any;
+    changes?: unknown;
     requestId?: string;
 }) {
     return dynamoDB.send(new PutCommand({
